@@ -6,8 +6,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/araddon/dateparse"
+	"github.com/thehivecorporation/log"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
+	"strings"
 )
 
 // Image defines Open Graph Image type
@@ -17,7 +20,7 @@ type Image struct {
 	Type      string `json:"type"`
 	Width     uint64 `json:"width"`
 	Height    uint64 `json:"height"`
-	draft     bool    `json:"-"`
+	draft     bool   `json:"-"`
 }
 
 // Video defines Open Graph Video type
@@ -27,7 +30,7 @@ type Video struct {
 	Type      string `json:"type"`
 	Width     uint64 `json:"width"`
 	Height    uint64 `json:"height"`
-	draft     bool    `json:"-"`
+	draft     bool   `json:"-"`
 }
 
 // Audio defines Open Graph Audio Type
@@ -35,7 +38,7 @@ type Audio struct {
 	URL       string `json:"url"`
 	SecureURL string `json:"secure_url"`
 	Type      string `json:"type"`
-	draft     bool    `json:"-"`
+	draft     bool   `json:"-"`
 }
 
 // Article contain Open Graph Article structure
@@ -69,20 +72,22 @@ type OpenGraph struct {
 	isArticle        bool
 	isBook           bool
 	isProfile        bool
-	Type             string   `json:"type"`
-	URL              string   `json:"url"`
-	Title            string   `json:"title"`
-	Description      string   `json:"description"`
-	Determiner       string   `json:"determiner"`
-	SiteName         string   `json:"site_name"`
-	Locale           string   `json:"locale"`
-	LocalesAlternate []string `json:"locales_alternate"`
-	Images           []*Image `json:"images"`
-	Audios           []*Audio `json:"audios"`
-	Videos           []*Video `json:"videos"`
-	Article          *Article `json:"article,omitempty"`
-	Book             *Book    `json:"book,omitempty"`
-	Profile          *Profile `json:"profile,omitempty"`
+	Type             string            `json:"type"`
+	URL              string            `json:"url"`
+	Title            string            `json:"title"`
+	Description      string            `json:"description"`
+	Determiner       string            `json:"determiner"`
+	SiteName         string            `json:"site_name"`
+	Locale           string            `json:"locale"`
+	LocalesAlternate []string          `json:"locales_alternate"`
+	Images           []*Image          `json:"images"`
+	Audios           []*Audio          `json:"audios"`
+	Videos           []*Video          `json:"videos"`
+	Article          *Article          `json:"article,omitempty"`
+	Book             *Book             `json:"book,omitempty"`
+	Profile          *Profile          `json:"profile,omitempty"`
+	ExtraArticle     map[string]string `json:"extra_article"`
+	Content          string
 }
 
 // NewOpenGraph returns new instance of Open Graph structure
@@ -159,6 +164,10 @@ func (og *OpenGraph) ensureHasAudio() {
 
 // ProcessMeta processes meta attributes and adds them to Open Graph structure if they are suitable for that
 func (og *OpenGraph) ProcessMeta(metaAttrs map[string]string) {
+	if strings.Contains(metaAttrs["property"], "article:") {
+		og.processArticleMeta(metaAttrs)
+	}
+
 	switch metaAttrs["property"] {
 	case "og:description":
 		og.Description = metaAttrs["content"]
@@ -185,7 +194,7 @@ func (og *OpenGraph) ProcessMeta(metaAttrs map[string]string) {
 	case "og:locale:alternate":
 		og.LocalesAlternate = append(og.LocalesAlternate, metaAttrs["content"])
 	case "og:audio":
-		if len(og.Audios)>0 && og.Audios[len(og.Audios)-1].draft {
+		if len(og.Audios) > 0 && og.Audios[len(og.Audios)-1].draft {
 			og.Audios[len(og.Audios)-1].URL = metaAttrs["content"]
 			og.Audios[len(og.Audios)-1].draft = false
 		} else {
@@ -198,7 +207,7 @@ func (og *OpenGraph) ProcessMeta(metaAttrs map[string]string) {
 		og.ensureHasAudio()
 		og.Audios[len(og.Audios)-1].Type = metaAttrs["content"]
 	case "og:image":
-		if len(og.Images)>0 && og.Images[len(og.Images)-1].draft {
+		if len(og.Images) > 0 && og.Images[len(og.Images)-1].draft {
 			og.Images[len(og.Images)-1].URL = metaAttrs["content"]
 			og.Images[len(og.Images)-1].draft = false
 		} else {
@@ -226,7 +235,7 @@ func (og *OpenGraph) ProcessMeta(metaAttrs map[string]string) {
 			og.Images[len(og.Images)-1].Height = h
 		}
 	case "og:video":
-		if len(og.Videos)>0 && og.Videos[len(og.Videos)-1].draft {
+		if len(og.Videos) > 0 && og.Videos[len(og.Videos)-1].draft {
 			og.Videos[len(og.Videos)-1].URL = metaAttrs["content"]
 			og.Videos[len(og.Videos)-1].draft = false
 		} else {
@@ -270,19 +279,25 @@ func (og *OpenGraph) processArticleMeta(metaAttrs map[string]string) {
 	}
 	switch metaAttrs["property"] {
 	case "article:published_time":
-		t, err := time.Parse(time.RFC3339, metaAttrs["content"])
+		t, err := dateparse.ParseAny(metaAttrs["content"])
 		if err == nil {
 			og.Article.PublishedTime = &t
+		} else {
+			log.WithError(err).Error("Could not parse 'published_time'")
 		}
 	case "article:modified_time":
-		t, err := time.Parse(time.RFC3339, metaAttrs["content"])
+		t, err := dateparse.ParseAny(metaAttrs["content"])
 		if err == nil {
 			og.Article.ModifiedTime = &t
+		} else {
+			log.WithError(err).Error("Could not parse 'modified_time'")
 		}
 	case "article:expiration_time":
-		t, err := time.Parse(time.RFC3339, metaAttrs["content"])
+		t, err := dateparse.ParseAny(metaAttrs["content"])
 		if err == nil {
 			og.Article.ExpirationTime = &t
+		} else {
+			log.WithError(err).Error("Could not parse 'expiration_time'")
 		}
 	case "article:section":
 		og.Article.Section = metaAttrs["content"]
@@ -317,7 +332,7 @@ func (og *OpenGraph) processBookMeta(metaAttrs map[string]string) {
 	}
 	switch metaAttrs["property"] {
 	case "book:release_date":
-		t, err := time.Parse(time.RFC3339, metaAttrs["content"])
+		t, err := dateparse.ParseAny(metaAttrs["content"])
 		if err == nil {
 			og.Book.ReleaseDate = &t
 		}
